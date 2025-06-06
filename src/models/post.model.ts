@@ -1,68 +1,63 @@
-import { Pool } from 'pg';
+import db from '../config/database';
 
 export interface Post {
   id: number;
   user_id: number;
   title: string;
   content: string;
-  created_at: Date;
-  updated_at: Date;
+  created_at: string;
+  updated_at: string;
 }
 
 export class PostModel {
-  constructor(private pool: Pool) {}
-
-  async findAllByUserId(userId: number, page = 1, limit = 10, sortBy = 'created_at', order = 'DESC'): Promise<{ posts: Post[]; total: number }> {
+  async findAllByUserId(userId: number, page: number = 1, limit: number = 10, sortBy: string = 'created_at', order: string = 'DESC'): Promise<{ posts: Post[]; total: number }> {
     const offset = (page - 1) * limit;
-    const countQuery = 'SELECT COUNT(*) FROM posts WHERE user_id = $1';
-    const query = `
+    
+    const posts = db.prepare(`
       SELECT * FROM posts 
-      WHERE user_id = $1
+      WHERE user_id = ?
       ORDER BY ${sortBy} ${order}
-      LIMIT $2 OFFSET $3
-    `;
+      LIMIT ? OFFSET ?
+    `).all(userId, limit, offset) as Post[];
 
-    const [countResult, result] = await Promise.all([
-      this.pool.query(countQuery, [userId]),
-      this.pool.query(query, [userId, limit, offset])
-    ]);
+    const total = db.prepare('SELECT COUNT(*) as count FROM posts WHERE user_id = ?')
+      .get(userId) as { count: number };
 
-    return {
-      posts: result.rows,
-      total: parseInt(countResult.rows[0].count)
-    };
+    return { posts, total: total.count };
   }
 
   async findByIdAndUserId(id: number, userId: number): Promise<Post | null> {
-    const query = 'SELECT * FROM posts WHERE id = $1 AND user_id = $2';
-    const result = await this.pool.query(query, [id, userId]);
-    return result.rows[0] || null;
+    const post = db.prepare('SELECT * FROM posts WHERE id = ? AND user_id = ?')
+      .get(id, userId) as Post | undefined;
+    return post || null;
   }
 
   async createForUser(userId: number, title: string, content: string): Promise<Post> {
-    const query = `
-      INSERT INTO posts (user_id, title, content, created_at, updated_at)
-      VALUES ($1, $2, $3, NOW(), NOW())
-      RETURNING *
-    `;
-    const result = await this.pool.query(query, [userId, title, content]);
-    return result.rows[0];
+    const result = db.prepare(`
+      INSERT INTO posts (user_id, title, content)
+      VALUES (?, ?, ?)
+    `).run(userId, title, content);
+
+    return this.findByIdAndUserId(result.lastInsertRowid as number, userId) as Promise<Post>;
   }
 
   async updateByIdAndUserId(id: number, userId: number, title: string, content: string): Promise<Post | null> {
-    const query = `
+    const result = db.prepare(`
       UPDATE posts 
-      SET title = $1, content = $2, updated_at = NOW()
-      WHERE id = $3 AND user_id = $4
-      RETURNING *
-    `;
-    const result = await this.pool.query(query, [title, content, id, userId]);
-    return result.rows[0] || null;
+      SET title = ?, content = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND user_id = ?
+    `).run(title, content, id, userId);
+
+    if (result.changes === 0) {
+      return null;
+    }
+
+    return this.findByIdAndUserId(id, userId);
   }
 
   async deleteByIdAndUserId(id: number, userId: number): Promise<boolean> {
-    const query = 'DELETE FROM posts WHERE id = $1 AND user_id = $2';
-    const result = await this.pool.query(query, [id, userId]);
-    return result.rowCount ? result.rowCount > 0 : false;
+    const result = db.prepare('DELETE FROM posts WHERE id = ? AND user_id = ?')
+      .run(id, userId);
+    return result.changes > 0;
   }
 } 

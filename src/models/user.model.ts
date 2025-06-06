@@ -1,66 +1,101 @@
-import { Pool } from 'pg';
+import db from '../config/database';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { Post } from './post.model';
 
 export interface User {
   id: number;
   username: string;
   email: string;
-  created_at: Date;
-  updated_at: Date;
+  created_at: string;
+  updated_at: string;
 }
 
 export class UserModel {
-  constructor(private pool: Pool) {}
+  constructor() {
+    this.initializeDatabase();
+  }
 
-  async findAll(page = 1, limit = 10, sortBy = 'created_at', order = 'DESC'): Promise<{ users: User[]; total: number }> {
+  private initializeDatabase() {
+    const initSql = readFileSync(join(__dirname, '../db/init.sql'), 'utf-8');
+    db.exec(initSql);
+  }
+
+  async findAll(page: number = 1, limit: number = 10, sortBy: string = 'created_at', order: string = 'DESC'): Promise<{ users: User[]; total: number }> {
     const offset = (page - 1) * limit;
-    const countQuery = 'SELECT COUNT(*) FROM users';
-    const query = `
+    
+    const users = db.prepare(`
       SELECT * FROM users 
       ORDER BY ${sortBy} ${order}
-      LIMIT $1 OFFSET $2
-    `;
+      LIMIT ? OFFSET ?
+    `).all(limit, offset) as User[];
 
-    const [countResult, result] = await Promise.all([
-      this.pool.query(countQuery),
-      this.pool.query(query, [limit, offset])
-    ]);
+    const total = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
 
-    return {
-      users: result.rows,
-      total: parseInt(countResult.rows[0].count)
-    };
+    return { users, total: total.count };
   }
 
   async findById(id: number): Promise<User | null> {
-    const query = 'SELECT * FROM users WHERE id = $1';
-    const result = await this.pool.query(query, [id]);
-    return result.rows[0] || null;
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as User | undefined;
+    return user || null;
   }
 
   async create(username: string, email: string): Promise<User> {
-    const query = `
-      INSERT INTO users (username, email, created_at, updated_at)
-      VALUES ($1, $2, NOW(), NOW())
-      RETURNING *
-    `;
-    const result = await this.pool.query(query, [username, email]);
-    return result.rows[0];
+    const result = db.prepare(`
+      INSERT INTO users (username, email)
+      VALUES (?, ?)
+    `).run(username, email);
+
+    return this.findById(result.lastInsertRowid as number) as Promise<User>;
   }
 
   async update(id: number, username: string, email: string): Promise<User | null> {
-    const query = `
+    const result = db.prepare(`
       UPDATE users 
-      SET username = $1, email = $2, updated_at = NOW()
-      WHERE id = $3
-      RETURNING *
-    `;
-    const result = await this.pool.query(query, [username, email, id]);
-    return result.rows[0] || null;
+      SET username = ?, email = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(username, email, id);
+
+    if (result.changes === 0) {
+      return null;
+    }
+
+    return this.findById(id);
   }
 
   async delete(id: number): Promise<boolean> {
-    const query = 'DELETE FROM users WHERE id = $1';
-    const result = await this.pool.query(query, [id]);
-    return result.rowCount ? result.rowCount > 0 : false;
+    const result = db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    return result.changes > 0;
+  }
+
+  async findAllByUserId(userId: number, page: number = 1, limit: number = 10, sortBy: string = 'created_at', order: string = 'DESC'): Promise<{ posts: Post[]; total: number }> {
+    const offset = (page - 1) * limit;
+    
+    const posts = db.prepare(`
+      SELECT * FROM posts 
+      WHERE user_id = ?
+      ORDER BY ${sortBy} ${order}
+      LIMIT ? OFFSET ?
+    `).all(userId, limit, offset) as Post[];
+
+    const total = db.prepare('SELECT COUNT(*) as count FROM posts WHERE user_id = ?')
+      .get(userId) as { count: number };
+
+    return { posts, total: total.count };
+  }
+
+  async findAllPosts(id: number, userId: number): Promise<Post | null> {
+    const post = db.prepare('SELECT * FROM posts WHERE id = ? AND user_id = ?')
+      .get(id, userId) as Post | undefined;
+    return post || null;
+  }
+
+  async createPost(userId: number, title: string, content: string): Promise<Post> {
+    const result = db.prepare(`
+      INSERT INTO posts (user_id, title, content)
+      VALUES (?, ?, ?)
+    `).run(userId, title, content);
+
+    return this.findAllPosts(result.lastInsertRowid as number, userId) as Promise<Post>;
   }
 } 

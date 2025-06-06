@@ -46,7 +46,22 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 // Swagger documentation
 const swaggerDocs = swaggerJsDoc(swaggerOptions);
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs, {
+  explorer: true,
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'REST API Documentation',
+  customfavIcon: '/favicon.ico',
+  swaggerOptions: {
+    persistAuthorization: true,
+    docExpansion: 'list',
+    filter: true,
+    showExtensions: true,
+    showCommonExtensions: true,
+    defaultModelsExpandDepth: 3,
+    defaultModelExpandDepth: 3,
+    displayRequestDuration: true,
+  }
+}));
 
 // Routes
 app.use('/api', routes);
@@ -57,4 +72,5 @@ app.use(errorHandler);
 // Start server
 app.listen(port, () => {
   logger.info(`Server is running on port ${port}`);
+  logger.info(`Swagger documentation available at http://localhost:${port}/api-docs`);
 }); 

@@ -37,6 +37,12 @@ bower_components/
 dist/
 build/
 
+# SQLite
+*.sqlite
+*.sqlite3
+*.db
+data/
+
 # Docker
 *.local
 
