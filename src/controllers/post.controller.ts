@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { PostModel } from '../models/post.model';
+import { PostModel, Post } from '../models/post.model';
 import { AppError } from '../middleware/errorHandler';
 import { StatusCodes } from 'http-status-codes';
 import { getBaseUrl } from '../utils/url';
@@ -7,28 +7,26 @@ import { getBaseUrl } from '../utils/url';
 export class PostController {
   constructor(private postModel: PostModel) {}
 
-  private createHateoasLinks(postId: number, userId: number, baseUrl: string) {
+  private createHateoasLinks(postId: number, baseUrl: string) {
     return {
-      self: { href: `${baseUrl}/api/v1/users/${userId}/posts/${postId}` },
-      user: { href: `${baseUrl}/api/v1/users/${userId}` },
-      update: { href: `${baseUrl}/api/v1/users/${userId}/posts/${postId}`, method: 'PUT' },
-      delete: { href: `${baseUrl}/api/v1/users/${userId}/posts/${postId}`, method: 'DELETE' }
+      self: { href: `${baseUrl}/api/v1/posts/${postId}` },
+      update: { href: `${baseUrl}/api/v1/posts/${postId}`, method: 'PUT' },
+      delete: { href: `${baseUrl}/api/v1/posts/${postId}`, method: 'DELETE' }
     };
   }
 
-  async getPostsByUserId(req: Request, res: Response) {
-    const userId = parseInt(req.params.userId);
+  async getAllPosts(req: Request, res: Response) {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const sortBy = (req.query.sort_by as string) || 'created_at';
     const order = (req.query.order as string)?.toUpperCase() || 'DESC';
 
-    const { posts, total } = await this.postModel.findAllByUserId(userId, page, limit, sortBy, order);
+    const { posts, total } = await this.postModel.findAll(page, limit, sortBy, order);
     
     const baseUrl = getBaseUrl(req);
-    const postsWithLinks = posts.map(post => ({
+    const postsWithLinks = posts.map((post: Post) => ({
       ...post,
-      _links: this.createHateoasLinks(post.id, userId, baseUrl)
+      _links: this.createHateoasLinks(post.id, baseUrl)
     }));
 
     res.status(StatusCodes.OK).json({
@@ -40,19 +38,18 @@ export class PostController {
         total_pages: Math.ceil(total / limit)
       },
       _links: {
-        self: { href: `${baseUrl}/api/v1/users/${userId}/posts?page=${page}&limit=${limit}` },
+        self: { href: `${baseUrl}/api/v1/posts?page=${page}&limit=${limit}` },
         next: page < Math.ceil(total / limit) ? 
-          { href: `${baseUrl}/api/v1/users/${userId}/posts?page=${page + 1}&limit=${limit}` } : null,
+          { href: `${baseUrl}/api/v1/posts?page=${page + 1}&limit=${limit}` } : null,
         prev: page > 1 ? 
-          { href: `${baseUrl}/api/v1/users/${userId}/posts?page=${page - 1}&limit=${limit}` } : null
+          { href: `${baseUrl}/api/v1/posts?page=${page - 1}&limit=${limit}` } : null
       }
     });
   }
 
-  async getPostByIdAndUserId(req: Request, res: Response) {
-    const userId = parseInt(req.params.userId);
+  async getPostById(req: Request, res: Response) {
     const postId = parseInt(req.params.id);
-    const post = await this.postModel.findByIdAndUserId(postId, userId);
+    const post = await this.postModel.findById(postId);
 
     if (!post) {
       throw new AppError('Post not found', StatusCodes.NOT_FOUND);
@@ -62,53 +59,68 @@ export class PostController {
     res.status(StatusCodes.OK).json({
       data: {
         ...post,
-        _links: this.createHateoasLinks(post.id, userId, baseUrl)
+        _links: this.createHateoasLinks(post.id, baseUrl)
       }
     });
   }
 
-  async createPostForUser(req: Request, res: Response) {
-    const userId = parseInt(req.params.userId);
-    const { title, content } = req.body;
-    const post = await this.postModel.createForUser(userId, title, content);
+  async searchPostsByTitle(req: Request, res: Response) {
+    const title = req.query.title as string;
+    const posts = await this.postModel.findByTitle(title);
 
     const baseUrl = getBaseUrl(req);
-    res.status(StatusCodes.CREATED).json({
-      data: {
-        ...post,
-        _links: this.createHateoasLinks(post.id, userId, baseUrl)
-      }
-    });
-  }
+    const postsWithLinks = posts.map((post: Post) => ({
+      ...post,
+      _links: this.createHateoasLinks(post.id, baseUrl)
+    }));
 
-  async updatePostByIdAndUserId(req: Request, res: Response) {
-    const userId = parseInt(req.params.userId);
-    const postId = parseInt(req.params.id);
-    const { title, content } = req.body;
-    
-    const post = await this.postModel.updateByIdAndUserId(postId, userId, title, content);
-    if (!post) {
-      throw new AppError('Post not found', StatusCodes.NOT_FOUND);
-    }
-
-    const baseUrl = getBaseUrl(req);
     res.status(StatusCodes.OK).json({
-      data: {
-        ...post,
-        _links: this.createHateoasLinks(post.id, userId, baseUrl)
-      }
+      data: postsWithLinks
     });
   }
 
-  async deletePostByIdAndUserId(req: Request, res: Response) {
-    const userId = parseInt(req.params.userId);
-    const postId = parseInt(req.params.id);
-    const deleted = await this.postModel.deleteByIdAndUserId(postId, userId);
-    
-    if (!deleted) {
-      throw new AppError('Post not found', StatusCodes.NOT_FOUND);
-    }
+  async searchPostsByContent(req: Request, res: Response) {
+    const content = req.query.content as string;
+    const posts = await this.postModel.findByContent(content);
 
-    res.status(StatusCodes.NO_CONTENT).send();
+    const baseUrl = getBaseUrl(req);
+    const postsWithLinks = posts.map((post: Post) => ({
+      ...post,
+      _links: this.createHateoasLinks(post.id, baseUrl)
+    }));
+
+    res.status(StatusCodes.OK).json({
+      data: postsWithLinks
+    });
+  }
+
+  async getLatestPosts(req: Request, res: Response) {
+    const limit = parseInt(req.query.limit as string) || 10;
+    const posts = await this.postModel.findLatest(limit);
+
+    const baseUrl = getBaseUrl(req);
+    const postsWithLinks = posts.map((post: Post) => ({
+      ...post,
+      _links: this.createHateoasLinks(post.id, baseUrl)
+    }));
+
+    res.status(StatusCodes.OK).json({
+      data: postsWithLinks
+    });
+  }
+
+  async getMostCommentedPosts(req: Request, res: Response) {
+    const limit = parseInt(req.query.limit as string) || 10;
+    const posts = await this.postModel.findMostCommented(limit);
+
+    const baseUrl = getBaseUrl(req);
+    const postsWithLinks = posts.map((post: Post) => ({
+      ...post,
+      _links: this.createHateoasLinks(post.id, baseUrl)
+    }));
+
+    res.status(StatusCodes.OK).json({
+      data: postsWithLinks
+    });
   }
 } 

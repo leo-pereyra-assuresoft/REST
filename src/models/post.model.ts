@@ -5,59 +5,67 @@ export interface Post {
   user_id: number;
   title: string;
   content: string;
-  created_at: string;
-  updated_at: string;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export class PostModel {
-  async findAllByUserId(userId: number, page: number = 1, limit: number = 10, sortBy: string = 'created_at', order: string = 'DESC'): Promise<{ posts: Post[]; total: number }> {
+  async findAll(page: number = 1, limit: number = 10, sortBy: string = 'created_at', order: string = 'DESC'): Promise<{ posts: Post[], total: number }> {
     const offset = (page - 1) * limit;
+    const validSortColumns = ['id', 'title', 'created_at', 'updated_at'];
+    const validOrders = ['ASC', 'DESC'];
     
+    const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'created_at';
+    const sortOrder = validOrders.includes(order) ? order : 'DESC';
+
     const posts = db.prepare(`
       SELECT * FROM posts 
-      WHERE user_id = ?
-      ORDER BY ${sortBy} ${order}
+      ORDER BY ${sortColumn} ${sortOrder}
       LIMIT ? OFFSET ?
-    `).all(userId, limit, offset) as Post[];
+    `).all(limit, offset) as Post[];
 
-    const total = db.prepare('SELECT COUNT(*) as count FROM posts WHERE user_id = ?')
-      .get(userId) as { count: number };
+    const total = db.prepare('SELECT COUNT(*) as total FROM posts')
+      .get() as { total: number };
 
-    return { posts, total: total.count };
+    return { posts, total: total.total };
   }
 
-  async findByIdAndUserId(id: number, userId: number): Promise<Post | null> {
-    const post = db.prepare('SELECT * FROM posts WHERE id = ? AND user_id = ?')
-      .get(id, userId) as Post | undefined;
+  async findById(id: number): Promise<Post | null> {
+    const post = db.prepare('SELECT * FROM posts WHERE id = ?')
+      .get(id) as Post | undefined;
     return post || null;
   }
 
-  async createForUser(userId: number, title: string, content: string): Promise<Post> {
-    const result = db.prepare(`
-      INSERT INTO posts (user_id, title, content)
-      VALUES (?, ?, ?)
-    `).run(userId, title, content);
-
-    return this.findByIdAndUserId(result.lastInsertRowid as number, userId) as Promise<Post>;
+  async findByTitle(title: string): Promise<Post[]> {
+    const posts = db.prepare(
+      'SELECT * FROM posts WHERE title LIKE ? ORDER BY created_at DESC'
+    ).all(`%${title}%`) as Post[];
+    return posts;
   }
 
-  async updateByIdAndUserId(id: number, userId: number, title: string, content: string): Promise<Post | null> {
-    const result = db.prepare(`
-      UPDATE posts 
-      SET title = ?, content = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND user_id = ?
-    `).run(title, content, id, userId);
-
-    if (result.changes === 0) {
-      return null;
-    }
-
-    return this.findByIdAndUserId(id, userId);
+  async findByContent(content: string): Promise<Post[]> {
+    const posts = db.prepare(
+      'SELECT * FROM posts WHERE content LIKE ? ORDER BY created_at DESC'
+    ).all(`%${content}%`) as Post[];
+    return posts;
   }
 
-  async deleteByIdAndUserId(id: number, userId: number): Promise<boolean> {
-    const result = db.prepare('DELETE FROM posts WHERE id = ? AND user_id = ?')
-      .run(id, userId);
-    return result.changes > 0;
+  async findLatest(limit: number = 10): Promise<Post[]> {
+    const posts = db.prepare(
+      'SELECT * FROM posts ORDER BY created_at DESC LIMIT ?'
+    ).all(limit) as Post[];
+    return posts;
+  }
+
+  async findMostCommented(limit: number = 10): Promise<Post[]> {
+    const posts = db.prepare(`
+      SELECT p.*, COUNT(c.id) as comment_count 
+      FROM posts p 
+      LEFT JOIN comments c ON p.id = c.post_id 
+      GROUP BY p.id 
+      ORDER BY comment_count DESC 
+      LIMIT ?
+    `).all(limit) as Post[];
+    return posts;
   }
 } 
