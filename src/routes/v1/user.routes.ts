@@ -415,4 +415,34 @@ router.get('/:userId/posts',
   userController.getPostsByUserId.bind(userController)
 );
 
+// BAD PRACTICE: Using a CamelCase route for all users
+router.get('/badAllUsers', async (req, res) => {
+  query('page').optional().isInt({ min: 1 }),
+  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('sort_by').optional().isIn(['created_at', 'updated_at', 'username', 'email']),
+  query('order').optional().isIn(['ASC', 'DESC']),
+  validateRequest,
+  userController.getUsers.bind(userController)
+});
+
+// BAD PRACTICE: sending a POST request to get user posts
+// This is a bad practice as it violates REST principles by using POST for retrieval.
+// Instead, GET should be used for fetching data.
+router.post('/:id', (req, res) => {
+  try {
+    param('id').isInt({ min: 1 }),
+    validateRequest,
+    userController.getUserById.bind(userController)
+  } catch (err) {
+    // BAD: Exposes stack trace to client
+    // This is a security risk and should not be done in production.
+    // We can move this response to the controller for better practice.
+    if (err instanceof Error) {
+      res.status(500).send(err.stack);
+    } else {
+      res.status(500).send('An unknown error occurred');
+    }
+  }
+});
+
 export default router; 
