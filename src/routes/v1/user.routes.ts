@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { body, param, query } from 'express-validator';
+import { body, param, query, validationResult } from 'express-validator';
 import { UserController } from '../../controllers/user.controller';
 import { validateRequest } from '../../middleware/validate-request';
 import { UserModel } from '../../models/user.model';
@@ -73,10 +73,13 @@ const userController = new UserController(userModel);
  *                     total_pages:
  *                       type: integer
  */
-router.get('/',
+router.get(
+  '/',
   query('page').optional().isInt({ min: 1 }),
   query('limit').optional().isInt({ min: 1, max: 100 }),
-  query('sort_by').optional().isIn(['created_at', 'updated_at', 'username', 'email']),
+  query('sort_by')
+    .optional()
+    .isIn(['created_at', 'updated_at', 'username', 'email']),
   query('order').optional().isIn(['ASC', 'DESC']),
   validateRequest,
   userController.getUsers.bind(userController)
@@ -120,7 +123,8 @@ router.get('/',
  *       404:
  *         description: User not found
  */
-router.get('/:id',
+router.get(
+  '/:id',
   param('id').isInt({ min: 1 }),
   validateRequest,
   userController.getUserById.bind(userController)
@@ -175,7 +179,8 @@ router.get('/:id',
  *       400:
  *         description: Invalid input data
  */
-router.post('/',
+router.post(
+  '/',
   body('username').trim().isLength({ min: 3, max: 50 }),
   body('email').isEmail().normalizeEmail(),
   validateRequest,
@@ -236,7 +241,8 @@ router.post('/',
  *       400:
  *         description: Invalid input data
  */
-router.put('/:id',
+router.put(
+  '/:id',
   param('id').isInt({ min: 1 }),
   body('username').optional().trim().isLength({ min: 3, max: 50 }),
   body('email').optional().isEmail().normalizeEmail(),
@@ -262,11 +268,16 @@ router.put('/:id',
  *       404:
  *         description: User not found
  */
-router.delete('/:id',
-  param('id').isInt({ min: 1 }),
-  validateRequest,
-  userController.deleteUser.bind(userController)
-);
+
+//BAD PRACTICE: use a confusing name
+router.delete('/remove-something-using-an-ID/:id', (req, res, next) => {
+  //BAD PRACTICE: instead of using validateRequest we create duplicate code to verify functions
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    param('id').isInt({ min: 1 }),
+      userController.deleteUser.bind(userController);
+  }
+});
 
 /**
  * @swagger
@@ -327,7 +338,10 @@ router.delete('/:id',
  *       400:
  *         description: Invalid input data
  */
-router.post('/:userId/posts',
+
+//BAD practice apply a ambiguous name
+router.post(
+  '/operation-for-post/:userId',
   param('userId'),
   body('title').trim().isLength({ min: 3, max: 100 }),
   body('content').trim().isLength({ min: 10 }),
@@ -405,7 +419,8 @@ router.post('/:userId/posts',
  *       404:
  *         description: User not found
  */
-router.get('/:userId/posts',
+router.get(
+  '/:userId/posts',
   param('userId'),
   query('page').optional().isInt({ min: 1 }),
   query('limit').optional().isInt({ min: 1, max: 100 }),
@@ -415,4 +430,4 @@ router.get('/:userId/posts',
   userController.getPostsByUserId.bind(userController)
 );
 
-export default router; 
+export default router;
